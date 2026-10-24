@@ -1,0 +1,9 @@
+{
+  "name": "Hanzi 1000 — learn Chinese characters",
+  "short_name": "Hanzi 1000",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#fbf8f3",
+  "theme_color": "#c8102e",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
