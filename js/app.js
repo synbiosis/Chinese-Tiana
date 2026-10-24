@@ -50,7 +50,7 @@
 
   function renderHome() {
     const learned = learnedChars().length;
-    const known = learnedChars().filter((c) => Store.level(c) >= 2).length;
+    const known = Panda.masteredCount();
     const { due, newCount } = plan();
     const day = S.days[Store.today()];
     const doneToday = day?.completed;
@@ -95,9 +95,10 @@
         </div>
         <button class="btn block big" id="start" style="margin-top:16px">${doneToday ? 'Practice again' : `Start ${S.settings.minutes}-minute lesson`}</button>
       </div>
+      ${Panda.card()}
       <div class="stats">
         <div class="stat"><b>${streak}🔥</b><span>day streak</span></div>
-        <div class="stat"><b>${known}</b><span>well known</span></div>
+        <div class="stat"><b>${known}</b><span>mastered</span></div>
         <div class="stat"><b>${Math.max(0, Math.ceil((HANZI.length - S.nextNew) / S.settings.newPerDay))}</b><span>days to finish</span></div>
       </div>
       <h2>This week</h2>
@@ -112,6 +113,7 @@
         </ol>
       </div>`;
     document.getElementById('start').onclick = startLesson;
+    Panda.animate();
   }
 
   /* ---------- Lesson engine ---------- */
@@ -579,7 +581,9 @@
         ${avg != null ? `<p>Average pronunciation score: <b>${avg}</b> / 100</p>` : ''}
         ${lesson.learned.length ? `<p class="muted small">Learned today</p><div class="learned-list" lang="zh-CN">${lesson.learned.join('')}</div>` : ''}
         <div class="footer-actions"><button class="btn big" id="done">Done</button></div>
-      </div>`;
+      </div>
+      ${Panda.card()}`;
+    Panda.animate();
     document.getElementById('done').onclick = () => show('home');
   }
 

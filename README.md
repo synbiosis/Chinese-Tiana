@@ -17,6 +17,10 @@ Each lesson runs on a 15-minute timer (you can change the length in Settings):
 
 At 10 new characters a day you finish all 1,000 in about 100 days. Missed items come back later in the same lesson. Your streak, progress ring and weekly chart are on the home screen.
 
+## 🐼 Your panda
+
+The home screen and the end-of-lesson summary show a panda that grows with every character you **master**. A character counts as mastered once your reviews have pushed its next review a week or more away. The panda starts as a tiny newborn cub and grows through Cub (50), Young (150), Teen (300), Grown (500) and Big (750) until it's a full-size **Giant panda with a crown at 1,000**. When you've mastered new characters since you last looked, it animates up to its new size.
+
 ## How the pronunciation scoring works
 
 When you tap 🎤, the app does two things at once:
@@ -46,6 +50,7 @@ index.html          app shell
 css/style.css       styles (light & dark mode)
 js/store.js         progress storage + spaced-repetition scheduler
 js/speech.js        text-to-speech, mic capture, pitch tracking, tone classifier, scoring
+js/panda.js         panda progress tracker
 js/app.js           home screen, lesson engine, character browser, settings
 data/hanzi.js       generated: 1,000 characters (+ pinyin readings for scoring)
 tools/build_data.py regenerates data/hanzi.js from the sources below
