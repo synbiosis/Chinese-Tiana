@@ -30,6 +30,7 @@
   document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => show(b.dataset.tab)));
 
   function show(tab) {
+    stopWriter();
     currentTab = tab;
     document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     document.body.classList.remove('in-lesson');
@@ -198,6 +199,7 @@
   }
 
   function lessonFrame(item, inner) {
+    stopWriter();
     const left = L.total - L.elapsed;
     const remaining = L.queue.slice(L.i).filter((q) => q.phase !== 'bonus').length;
     const phaseLabel = { review: 'Review', learn: 'New character', practice: 'Practice', bonus: 'Bonus practice', retry: 'Try again' }[item.phase];
@@ -273,7 +275,15 @@
     root.querySelectorAll('[data-say-word]').forEach((b) => { b.onclick = () => Speech.speak(h.w[Number(b.dataset.sayWord)][0]); });
   }
 
+  // Only one stroke animation runs at a time; it loops forever unless paused.
+  let activeWriter = null;
+  function stopWriter() {
+    if (activeWriter) { try { activeWriter.pauseAnimation(); } catch (e) { /* already gone */ } }
+    activeWriter = null;
+  }
+
   function strokeOrder(container, h) {
+    stopWriter();
     if (!window.HanziWriter) { container.innerHTML = '<p class="muted small center">Stroke order needs an internet connection.</p>'; return; }
     container.innerHTML = '';
     const css = getComputedStyle(document.documentElement);
@@ -283,6 +293,7 @@
       radicalColor: css.getPropertyValue('--accent').trim(),
       onLoadCharDataError: () => { container.innerHTML = '<p class="muted small center">Stroke data unavailable.</p>'; },
     });
+    activeWriter = writer;
     writer.loopCharacterAnimation();
   }
 
@@ -366,7 +377,7 @@
       document.getElementById('again').onclick = () => speakChar(h);
       document.getElementById('next').onclick = nextItem;
       onKeys({ Enter: nextItem });
-      if (ok) setTimeout(() => { if (L && L.queue[L.i] === item && document.getElementById('next')) nextItem(); }, 1600);
+      if (ok) setTimeout(() => { if (L && L.queue[L.i] === item && document.getElementById('next')) nextItem(); }, 900);
     };
     buttons.forEach((b, i) => { b.onclick = () => choose(i); });
     const keys = {};
@@ -542,6 +553,7 @@
   /* ---------- End of lesson ---------- */
 
   function renderTimeUp() {
+    stopWriter();
     const left = L.queue.slice(L.i).filter((q) => q.phase !== 'bonus').length;
     $view.innerHTML = `
       <div class="card center">
@@ -562,6 +574,7 @@
   function finishLesson() {
     if (!L) return show('home');
     clearInterval(L.timer);
+    stopWriter();
     Speech.stop();
     Store.save();
     const acc = L.answered ? Math.round((L.correct / L.answered) * 100) : 0;
@@ -621,7 +634,8 @@
         || '<p class="muted">No matches.</p>';
     };
     draw();
-    document.getElementById('q').oninput = (e) => { charQuery = e.target.value; draw(); };
+    let searchTimer;
+    document.getElementById('q').oninput = (e) => { charQuery = e.target.value; clearTimeout(searchTimer); searchTimer = setTimeout(draw, 150); };
     $view.querySelectorAll('.chip').forEach((c) => { c.onclick = () => { charFilter = c.dataset.f; renderChars(); }; });
     document.getElementById('grid').onclick = (e) => { const t = e.target.closest('.tile'); if (t) openChar(BY_CHAR[t.dataset.c]); };
   }
@@ -651,7 +665,7 @@
     speakChar(h);
   }
 
-  function closeModal() { $modal.hidden = true; Speech.stop(); $modalBody.innerHTML = ''; }
+  function closeModal() { stopWriter(); $modal.hidden = true; Speech.stop(); $modalBody.innerHTML = ''; }
   $modal.querySelector('.modal-close').onclick = closeModal;
   $modal.onclick = (e) => { if (e.target === $modal) closeModal(); };
 

@@ -1,6 +1,6 @@
 // Service worker: keeps the app usable offline after the first visit.
 // Bump VERSION when shipping changes so old caches are cleared.
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL = `hanzi1000-shell-${VERSION}`;
 const CDN = 'hanzi1000-cdn'; // stroke data and libraries; kept across versions
 

@@ -23,7 +23,7 @@
   function speak(text, rate) {
     if (!('speechSynthesis' in window)) return Promise.resolve();
     return new Promise((resolve) => {
-      speechSynthesis.cancel();
+      if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'zh-CN';
       if (voice) u.voice = voice;
@@ -83,6 +83,19 @@
 
   let stream = null;
   let audioCtx = null;
+  let releaseTimer = null;
+
+  // Turn the microphone (and the phone's recording mode) off when not in use.
+  // Keeping it open makes some phones play speech quietly or sluggishly.
+  function scheduleRelease() {
+    clearTimeout(releaseTimer);
+    releaseTimer = setTimeout(() => {
+      if (active) return;
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      stream = null;
+      if (audioCtx && audioCtx.state === 'running') audioCtx.suspend().catch(() => {});
+    }, 20000);
+  }
 
   async function getStream() {
     if (stream && stream.active) return stream;
@@ -91,11 +104,21 @@
   }
 
   // YIN-style fundamental frequency estimate. Returns 0 when unvoiced.
-  function detectPitch(buf, sampleRate) {
+  function detectPitch(input, inputRate) {
     let rms = 0;
-    for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
-    rms = Math.sqrt(rms / buf.length);
+    for (let i = 0; i < input.length; i++) rms += input[i] * input[i];
+    rms = Math.sqrt(rms / input.length);
     if (rms < 0.012) return { f0: 0, rms };
+    // Average down to ~16 kHz: voice pitch is far below that, and the search
+    // below costs (samples x lags), so this makes it roughly 9x cheaper.
+    const step = Math.max(1, Math.floor(inputRate / 16000));
+    const buf = new Float32Array(Math.floor(input.length / step));
+    for (let i = 0; i < buf.length; i++) {
+      let sum = 0;
+      for (let j = 0; j < step; j++) sum += input[i * step + j];
+      buf[i] = sum / step;
+    }
+    const sampleRate = inputRate / step;
     const minLag = Math.floor(sampleRate / 500);
     const maxLag = Math.min(Math.floor(sampleRate / 70), Math.floor(buf.length / 2));
     const n = buf.length - maxLag;
@@ -156,6 +179,8 @@
     const chunks = [];
     const started = performance.now();
     let heardAt = 0;
+    let stopping = false;
+    clearTimeout(releaseTimer);
 
     return new Promise((resolve) => {
       let finished = false;
@@ -167,6 +192,7 @@
         try { recognition && recognition.abort(); } catch (e) { /* already stopped */ }
         source.disconnect();
         active = null;
+        scheduleRelease();
         const done = (audioUrl) => resolve({ frames, transcripts, audioUrl, recognitionAvailable: !!Recognition, recognitionError });
         if (recorder && recorder.state !== 'inactive') {
           recorder.onstop = () => done(chunks.length ? URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType })) : null);
@@ -186,6 +212,12 @@
           const tail = frames.slice(-28);
           if (tail.length === 28 && tail.every((f) => f.rms < 0.015)) {
             if (recognitionDone) finish();
+            else if (!stopping) {
+              // Tell the recognizer the speaker is done so it answers now.
+              stopping = true;
+              try { recognition.stop(); } catch (e) { /* ignore */ }
+              setTimeout(finish, 1200);
+            }
           }
         }
       }, 25);

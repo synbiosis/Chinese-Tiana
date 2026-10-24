@@ -10,6 +10,8 @@
     let ok = 0;
     for (let i = 0; i < window.HANZI.length; i += 20) {
       if (!navigator.onLine) return; // try again next launch
+      // Hold off while a lesson is running so downloads don't compete with it.
+      while (document.body.classList.contains('in-lesson')) await new Promise((r) => setTimeout(r, 5000));
       const batch = window.HANZI.slice(i, i + 20).map((h) => STROKE_URL(h.c));
       await Promise.all(batch.map(async (url) => {
         try {

@@ -251,3 +251,6 @@ h2 { font-size: 18px; margin: 24px 0 10px; }
 .panda-bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; margin-top: 10px; }
 .panda-bar i { display: block; height: 100%; background: var(--good); border-radius: 99px; }
 .panda-gain { color: var(--good); font-weight: 600; margin: 10px 0 0; }
+
+/* Remove the tap delay and double-tap zoom on buttons */
+button, .option, .tile, label.btn { touch-action: manipulation; }
