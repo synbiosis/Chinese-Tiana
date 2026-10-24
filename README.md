@@ -41,6 +41,8 @@ python3 -m http.server 8000
 
 To use it on your phone, publish the repo with **GitHub Pages** (Settings → Pages → deploy from branch). That gives you an https URL; open it on your phone and use "Add to Home Screen" to get an app icon.
 
+**Offline:** after the first visit the app is saved on the device and works without internet. That covers lessons, audio, progress, the panda, and stroke order for all 1,000 characters, which download quietly in the background on that first visit. Word recognition in Chrome uses Google's servers, so offline the mic scores your **tone** only and full scoring comes back when you're online. When you change the app's files, bump `VERSION` in `sw.js` so phones pick up the new version.
+
 **Browser support:** Chrome, Edge and Safari (desktop, Android and iOS) give full feedback. Firefox has no speech recognition, so there it scores tone only. The rest of the app works everywhere. Progress is saved in your browser, and you can export or import it from Settings.
 
 ## Project layout
@@ -51,6 +53,8 @@ css/style.css       styles (light & dark mode)
 js/store.js         progress storage + spaced-repetition scheduler
 js/speech.js        text-to-speech, mic capture, pitch tracking, tone classifier, scoring
 js/panda.js         panda progress tracker
+js/offline.js       service worker registration + background stroke-data download
+sw.js               service worker (offline cache)
 js/app.js           home screen, lesson engine, character browser, settings
 data/hanzi.js       generated: 1,000 characters (+ pinyin readings for scoring)
 tools/build_data.py regenerates data/hanzi.js from the sources below

@@ -151,6 +151,7 @@
     const transcripts = [];
     let recognition = null;
     let recognitionDone = !Recognition;
+    let recognitionError = null;
     let recorder = null;
     const chunks = [];
     const started = performance.now();
@@ -166,7 +167,7 @@
         try { recognition && recognition.abort(); } catch (e) { /* already stopped */ }
         source.disconnect();
         active = null;
-        const done = (audioUrl) => resolve({ frames, transcripts, audioUrl, recognitionAvailable: !!Recognition });
+        const done = (audioUrl) => resolve({ frames, transcripts, audioUrl, recognitionAvailable: !!Recognition, recognitionError });
         if (recorder && recorder.state !== 'inactive') {
           recorder.onstop = () => done(chunks.length ? URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType })) : null);
           recorder.stop();
@@ -209,7 +210,7 @@
             for (const alt of result) transcripts.push({ text: alt.transcript, confidence: alt.confidence });
           }
         };
-        recognition.onerror = () => { recognitionDone = true; };
+        recognition.onerror = (e) => { recognitionError = e.error; recognitionDone = true; };
         recognition.onend = () => { recognitionDone = true; setTimeout(finish, 150); };
         try { recognition.start(); } catch (e) { recognitionDone = true; }
         setTimeout(() => { try { recognition.stop(); } catch (e) { /* ignore */ } }, maxMs);
@@ -349,6 +350,7 @@
       }
     }
 
+    const offline = result.recognitionError === 'network' || !navigator.onLine;
     const voiced = result.frames.filter((f) => f.rms > 0.02).length;
     if (!rec && !c && voiced < 4) {
       out.messages.push(result.recognitionAvailable ? "I didn't hear anything — check your mic and speak a little louder." : 'No voice detected. Try again, a bit louder.');
@@ -375,13 +377,13 @@
         else out.messages.push(`Heard “${out.recognized}”. Work on: ${wrong.map((x) => `${x.t.char} ${mark(x.t.base + x.t.tone)}`).join(', ')}.`);
       }
     } else if (toneScore == null) {
-      out.messages.push(Recognition ? "I couldn't make out a word. Try again, a little slower and closer to the mic." : "This browser can't recognize speech and this syllable has no tone to measure — check yourself against the model.");
+      out.messages.push(offline ? "You're offline, so word recognition is off, and this syllable has no tone to measure — compare yourself with the model." : Recognition ? "I couldn't make out a word. Try again, a little slower and closer to the mic." : "This browser can't recognize speech and this syllable has no tone to measure — check yourself against the model.");
       return out;
     } else {
       // No recognizer (or it returned nothing): judge by tone only.
       out.score = toneScore;
       out.kind = 'tone-only';
-      out.messages.push(Recognition ? "The recognizer couldn't make out a word — scoring the tone only." : 'Speech recognition is not available in this browser (try Chrome, Edge or Safari) — scoring the tone only.');
+      out.messages.push(offline ? "You're offline, so word recognition is off — scoring the tone only." : Recognition ? "The recognizer couldn't make out a word — scoring the tone only." : 'Speech recognition is not available in this browser (try Chrome, Edge or Safari) — scoring the tone only.');
     }
 
     if (toneScore != null && out.toneHeard) {

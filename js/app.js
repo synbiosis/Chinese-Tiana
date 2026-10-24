@@ -70,6 +70,7 @@
     }
 
     const warnings = [];
+    if (!navigator.onLine) warnings.push('You’re offline. Lessons, audio and progress all still work; speaking is scored by tone only until you’re back online.');
     if (S.settings.mic && !Speech.micSupported) warnings.push('Your browser can’t access a microphone here. Open the app over https or localhost to use speaking practice.');
     else if (S.settings.mic && !Speech.recognitionSupported) warnings.push('Speech recognition isn’t available in this browser, so speaking is judged by tone only. Chrome, Edge or Safari give full feedback.');
 
