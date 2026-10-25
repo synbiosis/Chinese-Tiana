@@ -96,6 +96,7 @@
           </div>
         </div>
         <button class="btn block big" id="start" style="margin-top:16px">${doneToday ? 'Practice again' : `Start ${S.settings.minutes}-minute lesson`}</button>
+        ${redoButtonHTML()}
       </div>
       ${Panda.card()}
       <div class="stats">
@@ -115,6 +116,7 @@
         </ol>
       </div>`;
     document.getElementById('start').onclick = startLesson;
+    bindRedo();
     Panda.animate();
   }
 
@@ -140,11 +142,71 @@
     return queue;
   }
 
+  /* ---------- Redo the last lesson ---------- */
+
+  // Saves what the current lesson covered so it can be redone later. A lesson
+  // only replaces the previous record once it has covered something.
+  function remember(kind, ch) {
+    const rec = L.record;
+    if (!rec || rec[kind].includes(ch)) return;
+    rec[kind].push(ch);
+    S.lastLesson = rec;
+  }
+
+  function lastLesson() {
+    if (S.lastLesson && (S.lastLesson.learned.length || S.lastLesson.reviewed.length)) return S.lastLesson;
+    // Lessons from before this was recorded: use the most recent day's new characters.
+    const dates = Object.values(S.cards).map((c) => c.introduced).filter(Boolean).sort();
+    if (!dates.length) return null;
+    const date = dates[dates.length - 1];
+    const learned = HANZI.filter((h) => S.cards[h.c]?.introduced === date).map((h) => h.c);
+    return { date, learned, reviewed: [] };
+  }
+
+  function redoButtonHTML() {
+    const last = lastLesson();
+    if (!last) return '';
+    const when = last.date === Store.today() ? 'today’s' : last.date === Store.today(-1) ? 'yesterday’s' : 'last';
+    const parts = [];
+    if (last.learned.length) parts.push(`<span class="hz">${esc(last.learned.slice(0, 8).join(''))}</span>${last.learned.length > 8 ? '…' : ''}`);
+    if (last.reviewed.length) parts.push(`${last.reviewed.length} review${last.reviewed.length === 1 ? '' : 's'}`);
+    return `<button class="btn block ghost" id="redo" style="margin-top:10px">↺ Redo ${when} lesson <span class="muted small">${parts.join(' + ')}</span></button>`;
+  }
+
+  function bindRedo() {
+    const btn = document.getElementById('redo');
+    if (btn) btn.onclick = () => startRedo(lastLesson());
+  }
+
+  // Replays a lesson's characters as practice: same intros and drills, but it
+  // doesn't change review dates, add new characters or count toward the streak.
+  function startRedo(last) {
+    if (!last) return;
+    const queue = [];
+    for (let i = 0; i < last.learned.length; i += 5) {
+      const batch = last.learned.slice(i, i + 5);
+      batch.forEach((ch) => queue.push({ type: 'intro', ch, phase: 'redo-learn' }));
+      shuffle(batch).forEach((ch) => queue.push({ type: 'meaning', ch, phase: 'redo' }));
+      shuffle(batch).forEach((ch) => queue.push({ type: Math.random() < 0.5 ? 'pinyin' : 'listen', ch, phase: 'redo' }));
+      if (S.settings.mic) shuffle(batch).forEach((ch) => queue.push({ type: 'speak', ch, phase: 'redo' }));
+    }
+    shuffle(last.reviewed).forEach((ch) => queue.push({ type: pick(exerciseTypes()), ch, phase: 'redo' }));
+    if (!queue.length) return;
+    L = {
+      queue, i: 0, elapsed: 0, total: S.settings.minutes * 60, replay: true, replayOf: last,
+      misses: {}, learned: [], reviewed: new Set(), correct: 0, answered: 0, spoken: 0, scoreSum: 0, startedAt: Date.now(),
+    };
+    Store.dayStats();
+    L.timer = setInterval(tick, 1000);
+    document.body.classList.add('in-lesson');
+    nextItem(true);
+  }
+
   function startLesson() {
     L = {
       queue: buildQueue(), i: 0, elapsed: 0, total: S.settings.minutes * 60,
       timeUpShown: false, misses: {}, learned: [], reviewed: new Set(), correct: 0, answered: 0, spoken: 0, scoreSum: 0,
-      startedAt: Date.now(),
+      startedAt: Date.now(), record: { date: Store.today(), learned: [], reviewed: [] },
     };
     Store.dayStats();
     L.timer = setInterval(tick, 1000);
@@ -157,11 +219,12 @@
     L.elapsed += 1;
     const day = Store.dayStats();
     day.seconds += 1;
-    if (L.elapsed >= L.total && !day.completed) day.completed = true;
+    if (!L.replay && L.elapsed >= L.total && !day.completed) day.completed = true;
     if (L.elapsed % 10 === 0) Store.save();
+    const clock = document.querySelector('.clock');
+    if (L.replay) { if (clock) clock.textContent = fmtTime(L.elapsed); return; }
     const bar = document.querySelector('.timebar i');
     if (bar) bar.style.width = `${Math.min(100, (L.elapsed / L.total) * 100)}%`;
-    const clock = document.querySelector('.clock');
     if (clock) clock.textContent = L.elapsed < L.total ? fmtTime(L.total - L.elapsed) : '+' + fmtTime(L.elapsed - L.total);
   }
 
@@ -179,6 +242,7 @@
 
   function nextItem(first) {
     if (first !== true) L.i += 1;
+    if (L.replay) return L.i >= L.queue.length ? finishLesson() : renderItem(L.queue[L.i]);
     // Keep reviews from crowding out new characters when there is a backlog.
     if (L.elapsed > L.total * 0.55) {
       while (L.queue[L.i]?.phase === 'review' && L.queue.slice(L.i).some((q) => q.phase === 'learn')) L.i += 1;
@@ -202,12 +266,17 @@
     stopWriter();
     const left = L.total - L.elapsed;
     const remaining = L.queue.slice(L.i).filter((q) => q.phase !== 'bonus').length;
-    const phaseLabel = { review: 'Review', learn: 'New character', practice: 'Practice', bonus: 'Bonus practice', retry: 'Try again' }[item.phase];
+    const phaseLabel = {
+      review: 'Review', learn: 'New character', practice: 'Practice', bonus: 'Bonus practice', retry: 'Try again',
+      'redo-learn': 'Redo · character', redo: 'Redo · practice',
+    }[item.phase];
+    // A redo has no time limit: its bar shows progress through the queue and the clock counts up.
+    const barPct = L.replay ? (L.i / L.queue.length) * 100 : Math.min(100, (L.elapsed / L.total) * 100);
     $view.innerHTML = `
       <div class="lesson-top">
         <button class="icon-btn" id="quit" aria-label="End lesson">✕</button>
-        <div class="timebar" title="Lesson time"><i style="width:${Math.min(100, (L.elapsed / L.total) * 100)}%"></i></div>
-        <div class="clock">${left > 0 ? fmtTime(left) : '+' + fmtTime(-left)}</div>
+        <div class="timebar" title="${L.replay ? 'Progress' : 'Lesson time'}"><i style="width:${barPct}%"></i></div>
+        <div class="clock">${L.replay ? fmtTime(L.elapsed) : left > 0 ? fmtTime(left) : '+' + fmtTime(-left)}</div>
       </div>
       <div class="card">
         <div class="phase">${phaseLabel}${remaining ? ` · ${remaining} left` : ''}</div>
@@ -246,6 +315,7 @@
       if (ok && item.hinted) q = 1;
       Store.grade(item.ch, q);
       L.reviewed.add(item.ch);
+      remember('reviewed', item.ch);
       Store.dayStats().reviewed += 1;
     }
     if (item.phase === 'practice' && item.final) {
@@ -298,8 +368,11 @@
   }
 
   function renderIntro(item, h) {
-    Store.introduce(h.c);
-    if (!L.learned.includes(h.c)) {
+    if (L.replay) {
+      if (!L.learned.includes(h.c)) L.learned.push(h.c);
+    } else if (!L.learned.includes(h.c)) {
+      Store.introduce(h.c);
+      remember('learned', h.c);
       L.learned.push(h.c);
       S.nextNew = Math.max(S.nextNew, h.r);
       Store.dayStats().learned += 1;
@@ -585,18 +658,23 @@
     $view.innerHTML = `
       <div class="card center">
         <div class="confetti">${Store.dayStats().completed ? '🎉' : '👏'}</div>
-        <h1>${Store.dayStats().completed ? 'Lesson complete!' : 'Nice work'}</h1>
+        <h1>${lesson.replay ? 'Redo complete!' : Store.dayStats().completed ? 'Lesson complete!' : 'Nice work'}</h1>
         <p class="muted">${fmtTime(lesson.elapsed)} practiced · streak ${Store.streak()}🔥</p>
         <div class="stats" style="margin:16px 0">
-          <div class="stat"><b>${lesson.learned.length}</b><span>new characters</span></div>
-          <div class="stat"><b>${lesson.reviewed.size}</b><span>reviewed</span></div>
+          ${lesson.replay
+            ? `<div class="stat"><b>${new Set(lesson.queue.slice(0, lesson.i + 1).map((q) => q.ch)).size}</b><span>characters practiced</span></div>
+               <div class="stat"><b>${lesson.answered}</b><span>drills done</span></div>`
+            : `<div class="stat"><b>${lesson.learned.length}</b><span>new characters</span></div>
+               <div class="stat"><b>${lesson.reviewed.size}</b><span>reviewed</span></div>`}
           <div class="stat"><b>${acc}%</b><span>accuracy</span></div>
         </div>
         ${avg != null ? `<p>Average pronunciation score: <b>${avg}</b> / 100</p>` : ''}
-        ${lesson.learned.length ? `<p class="muted small">Learned today</p><div class="learned-list" lang="zh-CN">${lesson.learned.join('')}</div>` : ''}
-        <div class="footer-actions"><button class="btn big" id="done">Done</button></div>
+        ${lesson.learned.length ? `<p class="muted small">${lesson.replay ? 'Characters in this lesson' : 'Learned today'}</p><div class="learned-list" lang="zh-CN">${lesson.learned.join('')}</div>` : ''}
+        <div class="footer-actions"><button class="btn ghost big" id="redo-again">↺ Redo</button><button class="btn big" id="done">Done</button></div>
       </div>
       ${Panda.card()}`;
+    document.getElementById('redo-again').onclick = () => startRedo(lesson.replay ? lesson.replayOf : lastLesson());
+    if (!lesson.replay && !lastLesson()) document.getElementById('redo-again').remove();
     Panda.animate();
     document.getElementById('done').onclick = () => show('home');
   }
