@@ -70,6 +70,7 @@
       week.push(`<div class="bar" title="${key}: ${mins} min"><i class="${d?.completed ? 'done' : mins ? 'part' : ''}" style="height:${Math.max(6, h)}%"></i>${label}</div>`);
     }
 
+    const paused = pausedLesson();
     const warnings = [];
     if (!navigator.onLine) warnings.push('You’re offline. Lessons, audio and progress all still work; speaking is scored by tone only until you’re back online.');
     if (S.settings.mic && !Speech.micSupported) warnings.push('Your browser can’t access a microphone here. Open the app over https or localhost to use speaking practice.');
@@ -95,8 +96,12 @@
             ${next ? `<div class="next-chars hz" aria-label="New characters today">${esc(next)}</div>` : ''}
           </div>
         </div>
+        ${paused ? `
+        <button class="btn block big" id="resume" style="margin-top:16px">▶ Continue ${paused.replay ? 'redo' : 'lesson'}
+          <span style="font-weight:400;opacity:.85">· ${pausedLabel(paused)}</span></button>
+        <button class="link-btn" id="end-paused" style="display:block;margin:6px auto 0">End it and see results</button>` : `
         <button class="btn block big" id="start" style="margin-top:16px">${doneToday ? 'Practice again' : `Start ${S.settings.minutes}-minute lesson`}</button>
-        ${redoButtonHTML()}
+        ${redoButtonHTML()}`}
       </div>
       ${Panda.card()}
       <div class="stats">
@@ -115,8 +120,13 @@
           <li>If time remains, bonus practice fills the ${S.settings.minutes} minutes.</li>
         </ol>
       </div>`;
-    document.getElementById('start').onclick = startLesson;
-    bindRedo();
+    if (paused) {
+      document.getElementById('resume').onclick = resumeLesson;
+      document.getElementById('end-paused').onclick = () => { restoreLesson(); finishLesson(); };
+    } else {
+      document.getElementById('start').onclick = startLesson;
+      bindRedo();
+    }
     Panda.animate();
   }
 
@@ -140,6 +150,63 @@
       if (S.settings.mic) shuffle(batch).forEach((ch) => queue.push({ type: 'speak', ch, phase: 'practice', final: true }));
     }
     return queue;
+  }
+
+  /* ---------- Pausing and resuming ---------- */
+
+  const SAVED_FIELDS = ['queue', 'i', 'elapsed', 'total', 'timeUpShown', 'misses', 'learned', 'correct', 'answered',
+    'spoken', 'scoreSum', 'startedAt', 'record', 'replay', 'replayOf', 'date'];
+
+  // Copies the running lesson into saved progress so it survives exiting or closing the app.
+  function persistLesson() {
+    if (!L) return;
+    const snap = { reviewed: [...L.reviewed] };
+    SAVED_FIELDS.forEach((k) => { snap[k] = L[k]; });
+    S.activeLesson = snap;
+  }
+
+  // A paused lesson can be continued the same day; on a new day a fresh lesson is planned
+  // (anything unfinished comes back as reviews).
+  function pausedLesson() {
+    const a = S.activeLesson;
+    if (a && a.date !== Store.today()) { delete S.activeLesson; Store.save(); return null; }
+    return a || null;
+  }
+
+  function pausedLabel(a) {
+    const left = a.queue.slice(a.i).filter((q) => !q.done && q.phase !== 'bonus').length;
+    const time = a.replay ? `${fmtTime(a.elapsed)} so far` : a.elapsed < a.total ? `${fmtTime(a.total - a.elapsed)} left` : 'time’s up';
+    return left ? `${time} · ${left} to go` : time;
+  }
+
+  function restoreLesson() {
+    const a = pausedLesson();
+    if (!a) return false;
+    L = { ...a, reviewed: new Set(a.reviewed) };
+    return true;
+  }
+
+  function resumeLesson() {
+    if (!restoreLesson()) return show('home');
+    L.timer = setInterval(tick, 1000);
+    document.body.classList.add('in-lesson');
+    window.scrollTo(0, 0);
+    if (L.i >= L.queue.length) L.i = L.queue.length - 1;
+    // If the last item was already answered, move on rather than grading it twice.
+    if (L.queue[L.i]?.done) nextItem();
+    else renderItem(L.queue[L.i]);
+  }
+
+  // ✕ in a lesson: keep everything and go home; the home screen offers Continue.
+  function pauseLesson() {
+    if (!L) return show('home');
+    clearInterval(L.timer);
+    persistLesson();
+    Store.save();
+    L = null;
+    Speech.stop();
+    onKeys({});
+    show('home');
   }
 
   /* ---------- Redo the last lesson ---------- */
@@ -193,7 +260,7 @@
     shuffle(last.reviewed).forEach((ch) => queue.push({ type: pick(exerciseTypes()), ch, phase: 'redo' }));
     if (!queue.length) return;
     L = {
-      queue, i: 0, elapsed: 0, total: S.settings.minutes * 60, replay: true, replayOf: last,
+      queue, i: 0, elapsed: 0, total: S.settings.minutes * 60, replay: true, replayOf: last, date: Store.today(),
       misses: {}, learned: [], reviewed: new Set(), correct: 0, answered: 0, spoken: 0, scoreSum: 0, startedAt: Date.now(),
     };
     Store.dayStats();
@@ -206,7 +273,7 @@
     L = {
       queue: buildQueue(), i: 0, elapsed: 0, total: S.settings.minutes * 60,
       timeUpShown: false, misses: {}, learned: [], reviewed: new Set(), correct: 0, answered: 0, spoken: 0, scoreSum: 0,
-      startedAt: Date.now(), record: { date: Store.today(), learned: [], reviewed: [] },
+      startedAt: Date.now(), record: { date: Store.today(), learned: [], reviewed: [] }, date: Store.today(),
     };
     Store.dayStats();
     L.timer = setInterval(tick, 1000);
@@ -220,7 +287,7 @@
     const day = Store.dayStats();
     day.seconds += 1;
     if (!L.replay && L.elapsed >= L.total && !day.completed) day.completed = true;
-    if (L.elapsed % 10 === 0) Store.save();
+    if (L.elapsed % 10 === 0) { persistLesson(); Store.save(); }
     const clock = document.querySelector('.clock');
     if (L.replay) { if (clock) clock.textContent = fmtTime(L.elapsed); return; }
     const bar = document.querySelector('.timebar i');
@@ -274,7 +341,7 @@
     const barPct = L.replay ? (L.i / L.queue.length) * 100 : Math.min(100, (L.elapsed / L.total) * 100);
     $view.innerHTML = `
       <div class="lesson-top">
-        <button class="icon-btn" id="quit" aria-label="End lesson">✕</button>
+        <button class="icon-btn" id="quit" aria-label="Pause and exit (you can continue later)" title="Pause and exit">✕</button>
         <div class="timebar" title="${L.replay ? 'Progress' : 'Lesson time'}"><i style="width:${barPct}%"></i></div>
         <div class="clock">${L.replay ? fmtTime(L.elapsed) : left > 0 ? fmtTime(left) : '+' + fmtTime(-left)}</div>
       </div>
@@ -282,10 +349,12 @@
         <div class="phase">${phaseLabel}${remaining ? ` · ${remaining} left` : ''}</div>
         ${inner}
       </div>`;
-    document.getElementById('quit').onclick = finishLesson;
+    document.getElementById('quit').onclick = pauseLesson;
   }
 
   function renderItem(item) {
+    persistLesson();
+    Store.save();
     const h = BY_CHAR[item.ch];
     ({ intro: renderIntro, meaning: renderMeaning, pinyin: renderPinyin, listen: renderListen, speak: renderSpeak })[item.type](item, h);
   }
@@ -293,6 +362,7 @@
   // Called once per exercise with the outcome. quality: 0..3, or null for ungraded.
   function complete(item, ok, speakScore) {
     const h = BY_CHAR[item.ch];
+    item.done = true;
     L.answered += 1;
     if (ok) L.correct += 1;
     if (speakScore != null) {
@@ -321,6 +391,7 @@
     if (item.phase === 'practice' && item.final) {
       Store.grade(item.ch, L.misses[item.ch] ? 0 : 2);
     }
+    persistLesson();
     Store.save();
     return h;
   }
@@ -649,6 +720,7 @@
     clearInterval(L.timer);
     stopWriter();
     Speech.stop();
+    delete S.activeLesson;
     Store.save();
     const acc = L.answered ? Math.round((L.correct / L.answered) * 100) : 0;
     const avg = L.spoken ? Math.round(L.scoreSum / L.spoken) : null;
@@ -821,6 +893,9 @@
     if (fn) { e.preventDefault(); fn(); }
   });
 
-  window.addEventListener('beforeunload', () => Store.save());
+  const saveAll = () => { persistLesson(); Store.save(); };
+  window.addEventListener('beforeunload', saveAll);
+  window.addEventListener('pagehide', saveAll);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveAll(); });
   show('home');
 })();

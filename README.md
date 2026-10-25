@@ -16,6 +16,8 @@ Each lesson runs on a 15-minute timer (you can change the length in Settings):
 4. **Bonus practice.** If you finish early, it drills your weakest characters until the time is up.
 5. **Redo.** The **↺ Redo last lesson** button on the home screen (and on the results screen) replays the most recent lesson's characters with the same intros and drills. A redo is untimed practice: it doesn't change review dates, add new characters or count toward the streak.
 
+**Pausing:** tap ✕ during a lesson, or just close the app, and you'll continue exactly where you left off: same question, same time left. The home screen shows **▶ Continue lesson** until the lesson is finished, or you can choose *End it and see results*. A paused lesson can be continued the same day. The next day a fresh lesson is planned, and anything left unfinished comes back as reviews.
+
 At 10 new characters a day you finish all 1,000 in about 100 days. Missed items come back later in the same lesson. Your streak, progress ring and weekly chart are on the home screen.
 
 ## 🐼 Your panda
